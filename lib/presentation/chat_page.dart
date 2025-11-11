@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:sws_ai/presentation/chat_bubble.dart';
 import 'package:sws_ai/presentation/chat_provider.dart';
@@ -36,6 +37,15 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Set the Built-in Bottom Nav Bars color, to match the UI
+    SystemChrome.setSystemUIOverlayStyle(
+      SystemUiOverlayStyle(
+        systemNavigationBarColor: Colors.white,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        statusBarColor: Colors.transparent,
+      ),
+    );
+
     // Watch the provider to refresh UI when messages change
     final chatProvider = context.watch<ChatProvider>();
 
