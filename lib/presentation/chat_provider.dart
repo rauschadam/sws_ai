@@ -32,24 +32,11 @@ class ChatProvider with ChangeNotifier {
     // prevent empty sends
     if (content.trim().isEmpty) return;
 
-    // user message
-    final userMessage = Message(
-      content: content,
-      isUser: true,
-      timestamp: DateTime.now(),
-    );
-
-    // add user message to chat
-    _messages.add(userMessage);
-
-    // update UI
-    notifyListeners();
+    // add message to chat
+    _addMessage(content, true);
 
     // start loading..
-    _isLoading = true;
-
-    // update UI
-    notifyListeners();
+    _setLoading(true);
 
     // send message & receive response
     try {
@@ -96,10 +83,7 @@ class ChatProvider with ChangeNotifier {
     }
 
     // finished loading..
-    _isLoading = false;
-
-    // update UI
-    notifyListeners();
+    _setLoading(false);
   }
 
   // This function handles calls requested by Gemini
@@ -224,6 +208,11 @@ class ChatProvider with ChangeNotifier {
         timestamp: DateTime.now(),
       ),
     );
+    notifyListeners();
+  }
+
+  void _setLoading(bool isLoading) {
+    _isLoading = isLoading;
     notifyListeners();
   }
 }
