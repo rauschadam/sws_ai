@@ -25,6 +25,26 @@ class GeminiApiService {
     ],
   );
 
+  static final _searchKnowledgeBaseTool = Tool(
+    functionDeclarations: [
+      FunctionDeclaration(
+        'searchKnowledgeBase',
+        'Saját, privát dokumentumokban (Excel, Word, stb.) keres céges adatok, bónuszok, riportok után.',
+        Schema(
+          SchemaType.object,
+          properties: {
+            'query': Schema(
+              SchemaType.string,
+              description:
+                  'A keresési kifejezés, pl. "Kovács János bónusza" vagy "2023-as riport"',
+            ),
+          },
+          requiredProperties: ['query'],
+        ),
+      ),
+    ],
+  );
+
   final GenerativeModel _modelInstance;
 
   // ChatSession manages chat history automatically
@@ -35,7 +55,7 @@ class GeminiApiService {
     : _modelInstance = GenerativeModel(
         model: _model,
         apiKey: apiKey,
-        tools: [_getWeatherTool],
+        tools: [_getWeatherTool, _searchKnowledgeBaseTool],
       ) {
     // Then start the workflow
     _chat = _modelInstance.startChat();

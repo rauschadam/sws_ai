@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'package:sws_ai/presentation/chat_page.dart';
 import 'package:sws_ai/presentation/chat_provider.dart';
 
-void main() {
+Future<void> main() async {
+  /// Get API Keys
+  await dotenv.load(fileName: ".env");
+
   runApp(
     ChangeNotifierProvider(
       create: (context) => ChatProvider(),

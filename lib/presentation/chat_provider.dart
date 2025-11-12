@@ -1,13 +1,20 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:http/http.dart' as http;
 import 'package:sws_ai/model/gemini/gemini_api_service.dart';
 import 'package:sws_ai/model/message.dart';
 
 class ChatProvider with ChangeNotifier {
-  /// Gemini API Key
-  final _apiService = GeminiApiService(
-    apiKey: "AIzaSyBkXuiuhDuooN5Wy60MgLAKwDICC7tgXBs",
-  );
+  /// Weather API key
+  final String _weatherApiKey = dotenv.env['WEATHER_API_KEY']!;
+
+  /// Gemini API service
+  final _apiService;
+  ChatProvider()
+    : _apiService = GeminiApiService(apiKey: dotenv.env['GEMINI_API_KEY']!);
 
   // Messages & Loading..
   final List<Message> _messages = [];
@@ -46,39 +53,36 @@ class ChatProvider with ChangeNotifier {
       // 1. Send Message
       var response = await _apiService.sendMessage(Content.text(content));
 
-      // 2. Check for function calls
-      final functionCalls = response.functionCalls;
+      // The loop runs until the model requests a function call
+      while (response.functionCalls.isNotEmpty) {
+        // 2. Check for function calls
+        final functionCalls = response.functionCalls;
 
-      // AI wants to call functions
-      if (functionCalls.isNotEmpty) {
-        // 3. Safe call
-        final call = functionCalls.first;
+        // List of answers for each function call
+        final List<Part> functionResponseParts = [];
 
-        // 4. Run the required function
-        final functionResult = await _handleFunctionCall(call);
+        // 3. Iterate through the function calls
+        for (final call in functionCalls) {
+          // 4. Run the functions
+          final functionResult = await _handleFunctionCall(call);
 
-        // 5. Send back the results to the model
-        response = await _apiService.sendMessage(
-          Content.functionResponse(call.name, functionResult),
-        );
-
-        // 6. process final answer
-        if (response.text != null) {
-          _addMessage(response.text!, false);
-        } else {
-          _addErrorMessage(
-            "A modell funkcióhívás után nem adott szöveges választ.",
+          // 5. Add the result to the list
+          functionResponseParts.add(
+            FunctionResponse(call.name, functionResult),
           );
         }
+
+        // 6. Return the results to the AI
+        response = await _apiService.sendMessage(
+          Content(null, functionResponseParts),
+        );
       }
-      // AI returned with an answer
-      else if (response.text != null) {
+      // 7. Process the final answer
+      if (response.text != null) {
         _addMessage(response.text!, false);
-      }
-      // AI returned with an error
-      else {
+      } else {
         _addErrorMessage(
-          "A modell sem szöveges, sem funkció választ nem adott.",
+          "A modell funkcióhívás után nem adott szöveges választ.",
         );
       }
     }
@@ -99,42 +103,101 @@ class ChatProvider with ChangeNotifier {
   Future<Map<String, Object?>> _handleFunctionCall(FunctionCall call) async {
     // We identify which functions were called
 
+    // Weather call
     if (call.name == 'getWeather') {
       // read the arguments
       final location = call.args['location'] as String?;
 
-      // run the ""dummy" function
-      return _getDummyWeather(location);
+      // run the function
+      return _getRealWeather(location);
+    }
+    // Search the base knowledge
+    else if (call.name == 'searchKnowledgeBase') {
+      // read the arguments
+      final query = call.args['query'] as String?;
+      // run the "DUMMY" function
+      return _getDummyKnowledgeBaseSearch(query);
     }
 
     // If it called an unknown function
     return {'error': 'Ismeretlen funkció'};
   }
 
-  // A "dummy" function that pretends to call an API
-  Future<Map<String, Object?>> _getDummyWeather(String? location) async {
-    // Delay to simulate network call
-    await Future.delayed(const Duration(seconds: 1));
+  /// Search for answers in the knowledge base
+  Future<Map<String, Object?>> _getDummyKnowledgeBaseSearch(
+    String? query,
+  ) async {
+    // Simulate the waiting
+    await Future.delayed(const Duration(milliseconds: 1500));
 
+    // prevent empty sends
+    if (query == null || query.isEmpty) {
+      return {'error': 'Keresési kifejezés megadása kötelező'};
+    }
+
+    // Hard-coded answers
+    if (query.toLowerCase().contains('kovács') &&
+        query.toLowerCase().contains('bónusz')) {
+      return {
+        'source_document': 'bonuszok_2023.xlsx',
+        'content_snippet':
+            'Kovács János (IT Osztály) 2023-as bónusza: 500,000 Ft. Kifizetve: 2024.01.10.',
+        'confidence': 0.95,
+      };
+    } else {
+      return {
+        'source_document': 'nincs_találat',
+        'content_snippet':
+            'A keresett információ nem található a dokumentumokban.',
+        'confidence': 0.0,
+      };
+    }
+  }
+
+  // Get the weather from real API
+  Future<Map<String, Object?>> _getRealWeather(String? location) async {
+    // prevent empty sends
     if (location == null || location.isEmpty) {
       return {'error': 'Helyszín megadása kötelező'};
     }
 
-    // Hard-coded answers for the test
-    if (location.toLowerCase().contains('budapest')) {
-      return {
-        'location': 'Budapest',
-        'temperature': 25,
-        'forecast': 'Napos, enyhe szél',
+    try {
+      // 1. Build up the URL
+      final queryParameters = {
+        'key': _weatherApiKey,
+        'q': location,
+        'aqi': 'no',
       };
+      final uri = Uri.https(
+        'api.weatherapi.com',
+        '/v1/current.json',
+        queryParameters,
+      );
+
+      // 2. Start the call
+      final apiResponse = await http.get(uri);
+
+      // 3. Check the response
+      if (apiResponse.statusCode == 200) {
+        // 4. Process the Json
+        final data = jsonDecode(apiResponse.body);
+
+        // 5. We return a map for Gemini (in the defined format)
+        return {
+          'location': data['location']['name'],
+          'temperature': data['current']['temp_c'],
+          'forecast': data['current']['condition']['text'],
+        };
+      }
+      // Api error..
+      else {
+        final errorData = jsonDecode(apiResponse.body);
+        return {'error': 'API Hiba: ${errorData['error']['message']}'};
+      }
     }
-    // If its not about budapest
-    else {
-      return {
-        'location': location,
-        'temperature': 20,
-        'forecast': 'Változóan felhős',
-      };
+    // Network error..
+    catch (e) {
+      return {'error': 'Hálózati hiba: $e'};
     }
   }
 
