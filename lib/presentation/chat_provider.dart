@@ -16,6 +16,9 @@ class ChatProvider with ChangeNotifier {
   ChatProvider()
     : _apiService = GeminiApiService(apiKey: dotenv.env['GEMINI_API_KEY']!);
 
+  final String _searchFunctionUrl =
+      "https://us-central1-sws-ai-chat.cloudfunctions.net/searchKnowledgeBase";
+
   // Messages & Loading..
   final List<Message> _messages = [];
   bool _isLoading = false;
@@ -115,42 +118,45 @@ class ChatProvider with ChangeNotifier {
     else if (call.name == 'searchKnowledgeBase') {
       // read the arguments
       final query = call.args['query'] as String?;
-      // run the "DUMMY" function
-      return _getDummyKnowledgeBaseSearch(query);
+      // run the function
+      return _getRealKnowledgeBaseSearch(query);
     }
 
     // If it called an unknown function
     return {'error': 'Ismeretlen funkció'};
   }
 
-  /// Search for answers in the knowledge base
-  Future<Map<String, Object?>> _getDummyKnowledgeBaseSearch(
+  /// Search for answers in the cloud function
+  Future<Map<String, Object?>> _getRealKnowledgeBaseSearch(
     String? query,
   ) async {
-    // Simulate the waiting
-    await Future.delayed(const Duration(milliseconds: 1500));
-
     // prevent empty sends
     if (query == null || query.isEmpty) {
       return {'error': 'Keresési kifejezés megadása kötelező'};
     }
 
-    // Hard-coded answers
-    if (query.toLowerCase().contains('kovács') &&
-        query.toLowerCase().contains('bónusz')) {
-      return {
-        'source_document': 'bonuszok_2023.xlsx',
-        'content_snippet':
-            'Kovács János (IT Osztály) 2023-as bónusza: 500,000 Ft. Kifizetve: 2024.01.10.',
-        'confidence': 0.95,
-      };
-    } else {
-      return {
-        'source_document': 'nincs_találat',
-        'content_snippet':
-            'A keresett információ nem található a dokumentumokban.',
-        'confidence': 0.0,
-      };
+    try {
+      // 1. Url
+      final uri = Uri.parse(
+        _searchFunctionUrl,
+      ).replace(queryParameters: {'query': query});
+
+      // 2. Start the API call
+      final apiResponse = await http.get(uri);
+
+      // 3. Check response
+      if (apiResponse.statusCode == 200) {
+        // 4. Return the Json as a MAP
+        return jsonDecode(apiResponse.body);
+      }
+      // error..
+      else {
+        return {'error': 'Cloud Function Hiba: ${apiResponse.body}'};
+      }
+    }
+    // Network error..
+    catch (e) {
+      return {'error': 'Hálózati hiba: $e'};
     }
   }
 
