@@ -12,13 +12,14 @@ import * as mammoth from "mammoth";
 initializeApp();
 const db = getFirestore("sws-ai-database"); // A te adatbázisod neve
 
-// === MÓDOSÍTÁS: Ez a funkció most már "okos" ===
-// Ez a funkció hívja meg a Vector Search bővítményt
+// === searchKnowledgeBase (HTTP Trigger) ===
+// Ez az a funkció, amit a Flutter appod hív.
 export const searchKnowledgeBase = onRequest(
   {cors: true, timeoutSeconds: 30}, // 30 mp időkorlát
   async (request, response) => {
-    logger.info("searchKnowledgeBase funkció meghívva (VALÓDI MÓD)",
+    logger.info("searchKnowledgeBase funkció meghívva",
       {structuredData: true});
+
     const query = request.query.query as string;
     if (query == null || query === "") {
       response.status(400).json({"error":
@@ -26,9 +27,7 @@ export const searchKnowledgeBase = onRequest(
       return;
     }
 
-    // === JAVÍTÁS ITT ===
-    // A bővítmény valójában a 'queries' AL-KOLLEKCIÓT figyeli.
-    // Ennek az útnak 3 (páratlan) része van, tehát ez egy kollekció.
+    // A Vector Search bővítmény ezt a kollekciót figyeli
     const queryCollectionPath = "firestore-vector-search/index/queries";
 
     try {
@@ -38,49 +37,49 @@ export const searchKnowledgeBase = onRequest(
         status: "pending", // Állapot
       });
 
+      // 2. Várunk a válaszra...
       const results = await new Promise((resolve, reject) => {
         const unsubscribe = queryDocRef.onSnapshot(
           (snapshot) => {
             const data = snapshot.data();
-            // 3. Ellenőrizzük, megjött-e a válasz a bővítménytől
+            // 3. Ellenőrizzük, megjött-e a válasz
             if (data && data.status === "complete" && data.results) {
-              unsubscribe(); // Leiratkozunk
-              resolve(data.results); // Visszaadjuk a találatokat
+              unsubscribe();
+              resolve(data.results);
             } else if (data && data.status === "error") {
               unsubscribe();
               reject(new Error(data.errorMessage || "A bővítmény hibát adott"));
             }
           },
-          (error) => { // Hiba a 'snapshot' figyelése közben
+          (error) => {
             unsubscribe();
             reject(error);
           },
         );
 
-        // Időkorlát, ha a bővítmény nem válaszol 30 mp-n belül
+        // Időkorlát
         setTimeout(() => {
           unsubscribe();
           reject(new Error("A keresés időtúllépéses (30s)."));
         }, 30000);
       });
 
-      // 4. Formázzuk a választ a Flutter app számára
-      const topResult = (results as any[])?.[0]; // Vegyük a legjobb találatot
+      // 4. Formázzuk a választ
+      const topResult = (results as any[])?.[0];
 
       if (topResult && topResult.document) {
         const responseData = {
-          // A topResult.document tartalmazza a Firestore-ba mentett adatokat
           "source_document": topResult.document.filePath || "Ismeretlen fájl",
           "content_snippet": topResult.document.text || "Nincs szövegrészlet",
-          "confidence": topResult.distance, // 0 (tökéletes) és 1 (rossz) között
+          "confidence": topResult.distance,
         };
         response.json(responseData);
       } else {
-        // Ha a bővítmény futott, de nem talált semmit
+        // Ha nem talált semmit
         response.json({
           "source_document": "nincs_találat",
           "content_snippet":
-           "Nem találtam releváns információt a feltöltött dokumentumokban.",
+            "Nem találtam releváns információt a feltöltött dokumentumokban.",
           "confidence": 0.0,
         });
       }
@@ -93,7 +92,8 @@ export const searchKnowledgeBase = onRequest(
   },
 );
 
-// === VÁLTOZATLAN: A fájlfeldolgozó funkció ===
+// === processDocument (Storage Trigger) ===
+// Ez az a funkció, ami a fájlfeltöltéskor fut le.
 export const processDocument = onObjectFinalized(async (event) => {
   const fileBucket = event.data.bucket;
   const filePath = event.data.name;
@@ -102,13 +102,16 @@ export const processDocument = onObjectFinalized(async (event) => {
     logger.warn("Nincs fájlút, a funkció leáll.");
     return;
   }
+
   const bucket = getStorage().bucket(fileBucket);
   const file = bucket.file(filePath);
   const [fileBuffer] = await file.download();
+
   logger.info(`Fájl letöltve: ${filePath}`);
+
   let extractedText = "";
+
   try {
-    // 1. Megpróbáljuk Excel-ként olvasni (.xlsx)
     if (filePath.endsWith(".xlsx")) {
       const workbook = xlsx.read(fileBuffer, {type: "buffer"});
       const sheetName = workbook.SheetNames[0];
@@ -123,13 +126,11 @@ export const processDocument = onObjectFinalized(async (event) => {
       logger.warn(`Nem támogatott fájltípus: ${filePath}`);
       return;
     }
-
-    // 3. Mentés a Firestore 'knowledge_base' kollekciójába
-    logger.info("Szöveg kinyerve, mentés a Firestore" +
-      " 'knowledge_base' kollekciójába...");
+    logger.info("Szöveg kinyerve, mentés a Firestore " +
+      "'knowledge_base' kollekciójába...");
     await db.collection("knowledge_base").add({
-      text: extractedText, // A kinyert szöveg
-      filePath: filePath, // A fájl neve, amiből jött
+      text: extractedText,
+      filePath: filePath,
       createdAt: new Date(),
     });
     logger.info(`Sikeres mentés a Firestore-ba: ${filePath}`);

@@ -29,14 +29,14 @@ class GeminiApiService {
     functionDeclarations: [
       FunctionDeclaration(
         'searchKnowledgeBase',
-        'Saját, privát dokumentumokban (Excel, Word, stb.) keres céges adatok, bónuszok, riportok után.',
+        'OAP applikációval kapcsolatos információk',
         Schema(
           SchemaType.object,
           properties: {
             'query': Schema(
               SchemaType.string,
               description:
-                  'A keresési kifejezés, pl. "Kovács János bónusza" vagy "2023-as riport"',
+                  'A keresési kifejezés, pl. "Foglalás rögzítése", "OAP"',
             ),
           },
           requiredProperties: ['query'],
